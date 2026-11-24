@@ -148,8 +148,8 @@ rng(2026);
 % Do not think a phone can read PDCCH or PDSCH before it has found the SSB. 
 % Without the SSB's timing it does not know where any symbol starts.
 % 
-% Do not read the AlbumTrack column as old track IDs. These are album numbers 
-% the album numbers: 05 is the PDSCH track and 15 is the PDCCH track.
+% Do not read the AlbumTrack column as old track IDs. These are the album
+% numbers: 05 is the PDSCH track and 15 is the PDCCH track.
 % Try it (personal exploration)
 % The teaching PDSCH block uses subcarrier rows 13 to 60 and OFDM symbols 4 
 % to 14 (see pdschRows and pdschSymbols in the code). Count how many REs that 
@@ -1148,42 +1148,89 @@ else
         'k0 should be a whole number from 0 to Ncb - 1. Look at the floor around the fraction.')
     disp('Stage 2 OK')
 end
-%% Stage 3 — predict, then build the read positions
-% First type your prediction: which buffer position is the last one read? Count
-% on from the start point and remember the wrap. Then fill the blanks so the
-% read starts at the RV start, steps one place at a time for E places, wraps
-% at the buffer end, and uses MATLAB (1-based) indices. k0 itself is 0-based.
-% Pass: Stage 3 OK.
+%% Stage 3a — predict first: the last position read
+% Before you build the index list, type your prediction: which buffer position
+% is the last one read? Count on from the start point and remember the wrap.
+% k0 is 0-based; the position you type should be a MATLAB (1-based) index.
+% Run this section and the check under it before you start Stage 3b: the check
+% does not take a prediction once Stage 3b's names exist.
+% Pass: Stage 3a OK.
 
 % myPrediction = ___;
-% readIdx = mod(k0 + (0:E-1), ___) + ___;
-%% Stage 3 check (given; it looks at readIdx before anything is read with it)
-if ~exist('readIdx','var') || ~exist('myPrediction','var') || isnan(myPrediction)
-    disp('Stage 3 not done: type a numeric prediction into myPrediction, fill the blanks, uncomment, and run.')
+%% Stage 3a check (given; compares your prediction with the wrap rule and does not print the value)
+if ~exist('myPrediction','var') || ~isnumeric(myPrediction) || ~isscalar(myPrediction) || isnan(myPrediction)
+    disp('Stage 3a not done: type one number into myPrediction, uncomment, and run.')
+elseif ~exist('Ncb','var') || ~exist('E','var') || ~exist('k0','var')
+    disp('Stage 3a needs Stage 2 first: make Ncb, E, and k0, then return here.')
+elseif exist('readIdx','var') || exist('rmOut','var')
+    disp('Stage 3a refused: Stage 3b or Stage 4 names already exist, so this is no longer a prediction. Run "clear readIdx rmOut", then predict again.')
 else
-    assert(numel(readIdx) == E, ...
-        'readIdx should hold exactly E positions. Look at the 0:E-1 range.')
-    assert(readIdx(1) == k0 + 1, ...
+    % Different route: the last read is E steps on from k0, wrapped, then
+    % converted to a MATLAB index. This does not use readIdx.
+    oracleLast = mod(k0 + E - 1, Ncb) + 1;
+    okPrediction3 = (myPrediction == oracleLast);
+    stage3aCheck = table("Prediction = last MATLAB index read for this RV", okPrediction3, ...
+        VariableNames = {'Check', 'Pass'});
+    stage3aCheck
+    if okPrediction3
+        myLockedPrediction = myPrediction;   % recorded before Stage 3b
+        disp('Stage 3a OK')
+    else
+        disp('Stage 3a not yet. Look first at the 0-based start k0, then count E entries with a wrap at Ncb, then add 1 for MATLAB. Change myPrediction and run again.')
+    end
+end
+%% Stage 3b — build the read positions
+% Fill the blank with a whole right-hand side: a list of E MATLAB indices that
+% starts at the RV start, steps one place at a time, and wraps at the buffer end.
+% k0 itself is 0-based.
+% Pass: your locked prediction and the last index you built appear side by side,
+% and Stage 3 OK.
+
+% readIdx = ___;
+%% Stage 3b check (given; it looks at readIdx before anything is read with it)
+if ~exist('myLockedPrediction','var')
+    disp('Stage 3b waits for Stage 3a: make your prediction there first and get Stage 3a OK.')
+elseif ~exist('readIdx','var')
+    disp('Stage 3b not done: fill the blank with a whole right-hand side, uncomment, and run.')
+else
+    % Your locked prediction beside the last index you built.
+    stage3Prediction = table(myLockedPrediction, readIdx(end), ...
+        VariableNames = {'MyPrediction', 'LastIndexBuilt'});
+    stage3Prediction
+
+    okStage3 = [numel(readIdx) == E; ...
+                readIdx(1) == k0 + 1; ...
+                max(readIdx) <= Ncb; ...
+                min(readIdx) >= 1];
+    assert(okStage3(1), ...
+        'readIdx should hold exactly E positions. Look at how many steps you took.')
+    assert(okStage3(2), ...
         'The read does not start at the RV start point. Common mistake: off by one between counting from 0 and from 1.')
-    assert(max(readIdx) <= Ncb, ...
-        'Some positions are past the end of the buffer. Common mistake: no wrap. Look at what the mod divides by.')
-    assert(min(readIdx) >= 1, ...
+    assert(okStage3(3), ...
+        'Some positions are past the end of the buffer. Common mistake: no wrap. Look at how you wrap at the buffer length.')
+    assert(okStage3(4), ...
         'A position is 0, which MATLAB cannot index. Common mistake: off by one; MATLAB counts from 1.')
+    stage3Checks = table( ...
+        ["Length is E"; "Starts at k0 + 1"; "No index past Ncb"; "No index below 1"], ...
+        okStage3, VariableNames = {'Check', 'Pass'});
+    stage3Checks
     disp('Stage 3 OK')
 end
 %% Stage 4 — read the bits
-% Fill the blank so rmOut holds the entries of codedBuffer at the positions 
-% in readIdx.
-% Pass: your prediction and the last position read print side by side, and Stage 
-% 4 OK.
+% Fill the blank with a whole right-hand side so rmOut holds the entries of
+% codedBuffer at the positions in readIdx.
+% Pass: your locked prediction and the last entry read appear side by side, and
+% Stage 4 OK.
 
-% rmOut = codedBuffer(___);
+% rmOut = ___;
 %% Stage 4 check (given; the check rotates the buffer, a different route from yours)
-if ~exist('rmOut','var')
+if ~exist('myLockedPrediction','var') || ~exist('readIdx','var')
+    disp('Stage 4 needs Stages 3a and 3b first.')
+elseif ~exist('rmOut','var')
     disp('Stage 4 not done: fill the blank, uncomment, and run.')
 else
-    predCompare = table(myPrediction, rmOut(end), ...
-        VariableNames = {'YouPredicted','Result'});
+    predCompare = table(myLockedPrediction, rmOut(end), ...
+        VariableNames = {'MyPrediction','LastEntryRead'});
     predCompare
     rotated = circshift(codedBuffer, -k0);   % the RV start point moves to the front
     oracle = rotated(1:E);
@@ -1195,9 +1242,11 @@ else
 end
 %% Stage 5 — confirm it does what it should (given)
 % Run the whole script from the top (Run All), then read this table and the 
-% figure, and write your interpretation in the text cell after them.
+% figure, and write your interpretation in the text cell after them. Rows marked
+% "repeat of Stage n" only repeat an earlier check; the wrap row uses a sign
+% you have not yet compared this way.
 
-if ~exist('rmOut','var') || ~exist('oracle','var')
+if ~exist('rmOut','var') || ~exist('oracle','var') || ~exist('myLockedPrediction','var')
     disp('Stage 5 needs Stages 1 to 4 first: finish them, then Run All.')
 else
     % Each flag is computed from your result, so the table cannot say Pass by itself.
@@ -1209,7 +1258,8 @@ else
     buildResult(buildFlags) = "Pass";
 
     % Asserts above stop the run on failure; this table makes the passes visible.
-    buildChecks = table(["Read length"; "Start point"; "Wraps past the end"; "Matches the rotated buffer"], ...
+    buildChecks = table(["Read length (repeat of Stage 3)"; "Start point (repeat of Stage 3)"; ...
+        "Wraps past the end"; "Matches the rotated buffer (repeat of Stage 4)"], ...
         ["E entries"; "position k0 + 1"; "a position drops back near 1"; "same as circshift by -k0"], ...
         buildResult, VariableNames = {'Check','Expected','Pass'});
     buildChecks
@@ -1228,9 +1278,9 @@ else
     title({'Blue: positions read for this RV', 'Star: the RV start point'});
 end
 %% Build it — Interpretation
-% Your interpretation (write one or two sentences here): which buffer positions
-% did this read skip, and why would a retransmission with a different RV be useful
-% to the receiver?
+% Write yours first, before you run the check below (one or two sentences): which
+% buffer positions did this read skip, and why would a retransmission with a
+% different RV be useful to the receiver?
 %% Build it — Check your interpretation
 % Type a number into myAnswer, then run this section. The check uses your
 % read and does not print a model sentence.
@@ -1250,7 +1300,8 @@ end
 % If a later section says a variable is undefined, run the script from the top
 % (Run All). Figures remain open. Names the Review needs are not used here.
 clear buildFlags buildResult buildChecks predCompare oracle nSkipped okInterp ...
-    interpCheck myAnswer ringAngle
+    interpCheck myAnswer ringAngle oracleLast okPrediction3 stage3aCheck ...
+    okStage3 stage3Checks
 %% Follow-on exercises
 % These go one step past the beats: a new value, or a diagnosis. Copying a
 % block from above and changing one number will not answer them. The checks

@@ -592,24 +592,13 @@ symbolStartSamples = cumsum([0; ...
 halfFrameSamples = sum(cpLengthsHalfSubframe + usefulLengthsHalfSubframe);
 expectedHalfFrameSamples = referenceFs_Hz * 0.5e-3;
 
-checkHalfSubframe = halfFrameSamples == expectedHalfFrameSamples;
+% Compare within a tight relative tolerance, not with ==, because
+% expectedHalfFrameSamples is worked from a rate in hertz and may
+% not match an integer sample count bit-for-bit.
+checkHalfSubframe = abs(halfFrameSamples - expectedHalfFrameSamples) < 1e-9*max(1, abs(expectedHalfFrameSamples));
 
 assert(checkHalfSubframe, ...
     'Seven symbols with one 160-sample CP and six 144-sample CPs should fill 0.5 ms. Look first at cpLengthsHalfSubframe: only symbol 0 gets the long CP.');
-
-% The assertion above stops execution if the relationship fails. This table
-% makes the successful check visible in the Live Editor.
-halfCheckPassed = [checkHalfSubframe];
-halfResultText = repmat("Pass", numel(halfCheckPassed), 1);
-halfResultText(~halfCheckPassed) = "Fail";
-
-halfFrameChecks = table( ...
-    "Half-subframe duration", ...
-    "0.5 ms", ...
-    halfResultText, ...
-    VariableNames = {'Check','Expected','Pass'});
-
-halfFrameChecks
 
 figure( ...
     Name = 'P00a - CP timing in one 0.5 ms half-subframe', ...
@@ -778,7 +767,8 @@ symbolWithCP = [rotatedBody(1:tailCP); symbolBody];
 
 % Property: the first tailCP samples of the transmitted symbol equal its
 % own last tailCP samples.
-checkCPIsTail = isequal(symbolWithCP(1:tailCP), symbolWithCP(end-tailCP+1:end));
+sentTailStart = numel(symbolWithCP) - tailCP + 1;   % first sample of the tail of the transmitted symbol
+checkCPIsTail = isequal(symbolWithCP(1:tailCP), symbolWithCP(sentTailStart:end));
 checkSymbolLength = numel(symbolWithCP) == tailNfft + tailCP;
 
 assert(checkCPIsTail, ...
@@ -852,7 +842,8 @@ title('One OFDM symbol: the shaded tail is copied to the front as the prefix');
 % Bottom: the prefix and the tail drawn on top of each other. If the CP is a
 % true copy, the two traces coincide everywhere.
 nexttile;
-plot(0:tailCP-1, real(symbolBody(end-tailCP+1:end)), '-', ...
+bodyTailStart = numel(symbolBody) - tailCP + 1;   % first sample of the tail of the body
+plot(0:tailCP-1, real(symbolBody(bodyTailStart:end)), '-', ...
     Color=[0.90 0.30 0.10], LineWidth=3);
 hold on;
 plot(0:tailCP-1, real(symbolWithCP(1:tailCP)), 'k--', LineWidth=1.2);
@@ -877,13 +868,13 @@ clear referenceNfft referenceSCS_Hz referenceFs_Hz ...
     symbolsPerHalfSubframe ...
     cpLengthsHalfSubframe usefulLengthsHalfSubframe ...
     symbolStartSamples halfFrameSamples expectedHalfFrameSamples ...
-    checkHalfSubframe halfCheckPassed halfResultText halfFrameChecks ...
-    symbolIndex symbolNumbers tl
+    checkHalfSubframe symbolIndex symbolNumbers tl
 
 % Also clear the tail-copy variables. The figures remain open.
 clear tailNfft tailCP tailSpectrum tailBins symbolBody cpCopy symbolWithCP ...
     checkCPIsTail checkSymbolLength tailResults tailChecks ...
-    tailCheckPassed tailResultText sampleAxis yLimits rotatedBody myPrediction
+    tailCheckPassed tailResultText sampleAxis yLimits rotatedBody myPrediction ...
+    sentTailStart bodyTailStart
 
 % Clear the B4 calculation and table variables as well.
 clear samplesPerSubframe_2048 symbolsPerSubframe scaledNfft scaledFs_Hz ...
@@ -908,17 +899,20 @@ clear samplesPerSubframe_2048 symbolsPerSubframe scaledNfft scaledFs_Hz ...
 % that section. Then run the check section under it. A check never gives the 
 % answer; it tells you what to look at.
 %% Stage 1 — switch it on
-% Delete the % in front of the two code lines, then run this section.
+% Delete the % in front of the three code lines, then run this section.
 % Pass: the check below prints Stage 1 OK.
 
 % gridColumn = [1; 1j; -1; -1j; -1; 1; -1j; 1j];   % 8 subcarriers, one symbol
+% Ncp = 2;   % prefix length, in samples
 % disp(gridColumn)
 %% Stage 1 check (given)
-if ~exist('gridColumn','var')
-    disp('Stage 1 not done: delete the % in front of the two code lines above, then run that section.')
+if ~exist('gridColumn','var') || ~exist('Ncp','var')
+    disp('Stage 1 not done: delete the % in front of the three code lines above, then run that section.')
 else
     assert(numel(gridColumn) == 8, ...
         'gridColumn should hold 8 values, one per subcarrier. Did you delete one?')
+    assert(Ncp == 2 && Ncp == floor(Ncp), ...
+        'Ncp should be the prefix length given in the problem (2 samples).')
     disp('Stage 1 OK')
 end
 %% Stage 2 — name and shape: the useful body
@@ -937,58 +931,98 @@ else
         'An FFT of the body should give gridColumn back. Did you use fft where ifft was needed?')
     disp('Stage 2 OK')
 end
-%% Stage 3 — predict, then build the prefix
-% First type your prediction: txSymbol(1), the very first sample sent, is a 
-% copy of one sample of bodySamples. Which one? Type its position number (1 
-% to 8). Use the rule "the prefix is a copy of the tail". Then fill the blanks: 
-% cpPart takes the last Ncp samples of bodySamples, and txSymbol stacks cpPart 
-% on top of bodySamples.
-% Pass: your prediction and the matching body position print side by side, 
-% and Stage 3 OK.
+%% Stage 3a — predict first: which body sample is copied to the front
+% Before you build the prefix, type your prediction: txSymbol(1), the very first
+% sample sent, is a copy of one sample of bodySamples. Which one? Type its
+% position number (1 to 8). Use the rule "the prefix is a copy of the tail".
+% Run this section and the check under it before you start Stage 3b: the check
+% does not take a prediction once Stage 3b's names exist.
+% Pass: Stage 3a OK.
 
 % myPrediction = ___;
-% Ncp = 2;
-% cpPart = bodySamples(___:end);
-% txSymbol = [___; bodySamples];
-%% Stage 3 check (given; the check builds the prefix by rotating the body, a different route from yours)
-if ~exist('txSymbol','var') || ~exist('myPrediction','var') || isnan(myPrediction)
-    disp('Stage 3 not done: type a numeric prediction into myPrediction, fill the blanks, uncomment, and run.')
+%% Stage 3a check (given; compares your prediction with the tail-start rule and does not print the value)
+if ~exist('myPrediction','var') || ~isnumeric(myPrediction) || ~isscalar(myPrediction) || isnan(myPrediction)
+    disp('Stage 3a not done: type one number into myPrediction, uncomment, and run.')
+elseif ~exist('bodySamples','var') || ~exist('Ncp','var')
+    disp('Stage 3a needs Stages 1 and 2 first: make gridColumn, Ncp, and bodySamples, then return here.')
+elseif exist('cpPart','var') || exist('txSymbol','var')
+    disp('Stage 3a refused: Stage 3b names already exist, so this is no longer a prediction. Run "clear cpPart txSymbol", then predict again.')
 else
-    % Find which body sample the first sent sample equals (a different route).
+    % Different route: the tail starts Ncp samples before the end of the body.
+    % This does not use cpPart or txSymbol.
+    oraclePosition = numel(bodySamples) - Ncp + 1;
+    okPrediction3 = (myPrediction == oraclePosition);
+    stage3aCheck = table("Prediction = body position copied to the first sent sample", okPrediction3, ...
+        VariableNames = {'Check', 'Pass'});
+    stage3aCheck
+    if okPrediction3
+        myLockedPrediction = myPrediction;   % recorded before Stage 3b
+        disp('Stage 3a OK')
+    else
+        disp('Stage 3a not yet. Look first at how long the prefix is, then at which samples of the body are its tail, then at which of those is sent first. Change myPrediction and run again.')
+    end
+end
+%% Stage 3b — build the prefix
+% Fill each blank with a whole right-hand side: cpPart is the last Ncp samples
+% of bodySamples, and txSymbol is the prefix stacked in front of the body.
+% Pass: your locked prediction and the matching body position appear side by
+% side, and Stage 3 OK.
+
+% cpPart = ___;
+% txSymbol = ___;
+%% Stage 3b check (given; the check builds the prefix by rotating the body, a different route from yours)
+if ~exist('myLockedPrediction','var')
+    disp('Stage 3b waits for Stage 3a: make your prediction there first and get Stage 3a OK.')
+elseif ~exist('cpPart','var') || ~exist('txSymbol','var')
+    disp('Stage 3b not done: fill each blank with a whole right-hand side, uncomment, and run.')
+else
+    % Your locked prediction beside the body position that matches the first sent sample.
     matchPosition = find(abs(bodySamples - txSymbol(1)) < 1e-12, 1);
-    predCompare = table(myPrediction, matchPosition, ...
-        VariableNames = {'YouPredicted','Result'});
-    predCompare
+    stage3Prediction = table(myLockedPrediction, matchPosition, ...
+        VariableNames = {'MyPrediction', 'BodyPositionBuilt'});
+    stage3Prediction
+
     rotated = circshift(bodySamples, Ncp);   % the last Ncp samples move to the front
     oracle = [rotated(1:Ncp); bodySamples];
-    assert(numel(txSymbol) == numel(bodySamples) + Ncp, ...
+    copiedHead = max(abs(txSymbol(1:Ncp) - bodySamples(1:Ncp))) < 1e-12;
+    okStage3 = [numel(txSymbol) == numel(bodySamples) + Ncp; ...
+                ~(copiedHead && max(abs(txSymbol - oracle)) > 1e-12); ...
+                max(abs(txSymbol - oracle)) < 1e-12];
+    assert(okStage3(1), ...
         'txSymbol has the wrong length. It should be the body plus the prefix, nothing more.')
-    assert(~(max(abs(txSymbol(1:Ncp) - bodySamples(1:Ncp))) < 1e-12 && ...
-        max(abs(txSymbol - oracle)) > 1e-12), ...
+    assert(okStage3(2), ...
         'The prefix repeats the first samples of the body. Common mistake: the prefix is a copy of the tail.')
-    assert(max(abs(txSymbol - oracle)) < 1e-12, ...
-        'The prefix does not match the end of the body. Look at the start index of cpPart and the order inside [ ].')
+    assert(okStage3(3), ...
+        'The prefix does not match the end of the body. Look at how you take the tail of the body and at the order inside [ ].')
+    stage3Checks = table( ...
+        ["Length is body plus prefix"; "Prefix is not a copy of the head"; "Prefix matches a rotation of the body"], ...
+        okStage3, VariableNames = {'Check', 'Pass'});
+    stage3Checks
     disp('Stage 3 OK')
 end
 %% Stage 4 — confirm it does what it should (given)
 % Run the whole script from the top (Run All), then read this table and the 
-% figure, and write your interpretation in the text cell after them.
+% figure, and write your interpretation in the text cell after them. Rows marked
+% "repeat of Stage 3" only repeat an earlier check; the other row uses a route
+% you have not yet compared this way.
 
-if ~exist('txSymbol','var') || ~exist('oracle','var')
+if ~exist('txSymbol','var') || ~exist('oracle','var') || ~exist('myLockedPrediction','var')
     disp('Stage 4 needs Stages 1 to 3 first: finish them, then Run All.')
 else
     % The receiver drops the prefix and takes an FFT of what is left.
     recovered = fft(txSymbol(Ncp+1:end));
+    sentTailStart = numel(txSymbol) - Ncp + 1;   % first sample of the tail of txSymbol
 
     % Each flag is computed from your result, so the table cannot say Pass by itself.
     buildFlags = [numel(txSymbol) == numel(gridColumn) + Ncp; ...
-        max(abs(txSymbol(1:Ncp) - txSymbol(end-Ncp+1:end))) < 1e-12; ...
+        max(abs(txSymbol(1:Ncp) - txSymbol(sentTailStart:end))) < 1e-12; ...
         max(abs(recovered - gridColumn)) < 1e-12];
     buildResult = repmat("Fail", numel(buildFlags), 1);
     buildResult(buildFlags) = "Pass";
 
     % Asserts above stop the run on failure; this table makes the passes visible.
-    buildChecks = table(["Length"; "Front equals tail"; "Drop prefix, FFT gives the column back"], ...
+    buildChecks = table(["Length (repeat of Stage 3)"; "Front equals tail (repeat of Stage 3)"; ...
+        "Drop prefix, FFT gives the column back"], ...
         ["body plus prefix"; "first Ncp samples = last Ncp samples"; "same 8 values as gridColumn"], ...
         buildResult, VariableNames = {'Check','Expected','Pass'});
     buildChecks
@@ -998,7 +1032,7 @@ else
     stem(sampleAxis, real(txSymbol), 'filled');
     hold on;
     stem(sampleAxis(1:Ncp), real(txSymbol(1:Ncp)), 'filled', Color = [0.90 0.30 0.10]);
-    stem(sampleAxis(end-Ncp+1:end), real(txSymbol(end-Ncp+1:end)), 'filled', Color = [0.90 0.30 0.10]);
+    stem(sampleAxis(sentTailStart:end), real(txSymbol(sentTailStart:end)), 'filled', Color = [0.90 0.30 0.10]);
     hold off;
     grid on;
     xlabel('Sample index (body starts at 0; the prefix sits at negative indices)');
@@ -1006,9 +1040,9 @@ else
     title('Orange: the prefix at the front and the tail it was copied from');
 end
 %% Build it — Interpretation
-% Your interpretation (write one or two sentences here): what do the two orange
-% groups have in common, and why does dropping the prefix still give the receiver
-% every subcarrier value back?
+% Write yours first, before you run the check below (one or two sentences): what
+% do the two orange groups have in common, and why does dropping the prefix still
+% give the receiver every subcarrier value back?
 %% Build it — Check your interpretation
 % Type a number into myAnswer, then run this section. The check uses your
 % symbol and does not print a model sentence.
@@ -1018,7 +1052,8 @@ if isnan(myAnswer)
 elseif ~exist('txSymbol','var') || ~exist('Ncp','var')
     disp('Run Stages 1 to 4 first, then return here.')
 else
-    nMatch = nnz(abs(txSymbol(1:Ncp) - txSymbol(end-Ncp+1:end)) < 1e-12);
+    sentTailStart = numel(txSymbol) - Ncp + 1;
+    nMatch = nnz(abs(txSymbol(1:Ncp) - txSymbol(sentTailStart:end)) < 1e-12);
     okInterp = (myAnswer == nMatch);
     interpCheck = table("Front samples that match the tail", ...
         okInterp, VariableNames = {'Check','Pass'});
@@ -1028,7 +1063,8 @@ end
 % If a later section says a variable is undefined, run the script from the top
 % (Run All). Figures remain open. Names the Review needs are not used here.
 clear buildFlags buildResult buildChecks predCompare oracle nMatch okInterp ...
-    interpCheck myAnswer
+    interpCheck myAnswer sentTailStart recovered copiedHead ...
+    oraclePosition okPrediction3 stage3aCheck matchPosition okStage3 stage3Checks
 %% Follow-on exercises
 % These go one step past the beats: a new value, or a diagnosis. Copying a
 % block from above and changing one number will not answer them. The checks
