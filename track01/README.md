@@ -7,7 +7,6 @@ Companion code and notes for the lecture
 
 - Narration script: [track01_narration_v2.md](track01_narration_v2.md)
 - MATLAB demo: [track01_two_to_the_mu_demo.m](track01_two_to_the_mu_demo.m)
-- Exported Live Script: [track01_demo_export.m](track01_demo_export.m)
 - Build-it exercise: inside the MATLAB demo, in the "Build it" section. Work it yourself; answers are not in this repository.
 - Lecture notes: [track01_lecture_notes.md](track01_lecture_notes.md)
 - Checks: [track01_checks.md](track01_checks.md)

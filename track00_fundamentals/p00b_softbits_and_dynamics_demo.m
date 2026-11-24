@@ -872,65 +872,115 @@ else
         'yRx should hold five values and noiseVar should be positive. Did you change a line?')
     disp('Stage 1 OK')
 end
-%% Stage 2 — name and shape: a place for the answers
-% Rename z to llrOut, the name the checks expect. It starts as zeros, one per 
-% received value; Stage 3 fills it.
+%% Stage 2 — name and shape: how many received values
+% Rename n to nRx, the name the checks expect: how many received values you
+% will turn into LLRs.
 % Pass: Stage 2 OK.
 
-% z = zeros(size(yRx));
+% n = numel(yRx);
 %% Stage 2 check (given)
-if ~exist('llrOut','var')
-    disp('Stage 2 not done: rename z to llrOut, uncomment, and run.')
+if ~exist('nRx','var')
+    disp('Stage 2 not done: rename n to nRx, uncomment, and run.')
 else
-    assert(isequal(size(llrOut), size(yRx)), ...
-        'llrOut should have one entry per received value. Look at size(yRx).')
+    assert(nRx == numel(yRx), ...
+        'nRx should be the number of received values. Look at numel(yRx).')
     disp('Stage 2 OK')
 end
-%% Stage 3 — compute the LLRs
-% Fill the blanks so each LLR is the Gaussian shortcut in terms of yRx and
-% noiseVar, for every value at once.
-% Pass: Stage 3 OK.
+%% Stage 3a — predict first: the first LLR
+% Before you compute the five LLRs, type your prediction: what is the LLR of
+% the first received value, yRx(1), at this noiseVar? Use the Gaussian shortcut
+% in the problem, or the two likelihoods. Run this section and the check under
+% it before you start Stage 3b: the check does not take a prediction once
+% Stage 3b or Stage 4 names exist.
+% Pass: Stage 3a OK.
 
-% llrOut = ___ * yRx / ___;
-%% Stage 3 check (given; the check uses the two Gaussian likelihoods, a different route)
-if ~exist('llrOut','var') || all(llrOut == 0)
-    disp('Stage 3 not done: fill the blanks, uncomment, and run.')
+% myPrediction = ___;
+%% Stage 3a check (given; compares your prediction with the two Gaussian likelihoods and does not print the value)
+if ~exist('myPrediction','var') || ~isnumeric(myPrediction) || ~isscalar(myPrediction) || isnan(myPrediction)
+    disp('Stage 3a not done: type one number into myPrediction, uncomment, and run.')
+elseif ~exist('yRx','var') || ~exist('noiseVar','var')
+    disp('Stage 3a needs Stage 1 first: make yRx and noiseVar, then return here.')
+elseif exist('llrOut','var') || exist('bitOut','var')
+    disp('Stage 3a refused: Stage 3b or Stage 4 names already exist, so this is no longer a prediction. Run "clear llrOut bitOut", then predict again.')
 else
+    % Different route: the log of the two Gaussian likelihoods at yRx(1) only.
+    % This does not use llrOut or the shortcut formula you will type later.
+    like0 = exp(-(yRx(1) - 1).^2 / (2*noiseVar));
+    like1 = exp(-(yRx(1) + 1).^2 / (2*noiseVar));
+    oracleFirst = log(like0 / like1);
+    okPrediction3 = abs(myPrediction - oracleFirst) < 1e-6;
+    stage3aCheck = table("Prediction = LLR of the first received value", okPrediction3, ...
+        VariableNames = {'Check', 'Pass'});
+    stage3aCheck
+    if okPrediction3
+        myLockedPrediction = myPrediction;   % recorded before Stage 3b
+        disp('Stage 3a OK')
+    else
+        disp('Stage 3a not yet. Look first at yRx(1) and noiseVar, then at the shortcut in the problem, or at the two likelihoods. Change myPrediction and run again.')
+    end
+end
+%% Stage 3b — compute the LLRs
+% Fill the blank with a whole right-hand side so llrOut holds the five LLRs,
+% one per received value, from yRx and noiseVar.
+% Pass: your locked prediction and the first LLR you built appear side by side,
+% and Stage 3 OK.
+
+% llrOut = ___;
+%% Stage 3b check (given; the check uses the two Gaussian likelihoods, a different route)
+if ~exist('myLockedPrediction','var')
+    disp('Stage 3b waits for Stage 3a: make your prediction there first and get Stage 3a OK.')
+elseif ~exist('llrOut','var')
+    disp('Stage 3b not done: fill the blank with a whole right-hand side, uncomment, and run.')
+else
+    % Your locked prediction beside the first LLR you built.
+    stage3Prediction = table(myLockedPrediction, llrOut(1), ...
+        VariableNames = {'MyPrediction', 'FirstLLRBuilt'});
+    stage3Prediction
+
     likelyZero = exp(-(yRx - 1).^2 / (2*noiseVar));   % how well +1 explains each value
     likelyOne = exp(-(yRx + 1).^2 / (2*noiseVar));    % how well -1 explains each value
     oracle = log(likelyZero ./ likelyOne);
-    assert(max(abs(llrOut + oracle)) > 1e-9, ...
+    okStage3 = [isequal(size(llrOut), size(yRx)); ...
+                max(abs(llrOut + oracle)) > 1e-9; ...
+                max(abs(llrOut - oracle/2)) > 1e-9; ...
+                max(abs(llrOut - oracle)) < 1e-9];
+    assert(okStage3(1), ...
+        'llrOut should have one entry per received value. Look at the size of yRx.')
+    assert(okStage3(2), ...
         'Every LLR has the wrong sign. Common mistake: flipping the sign convention; bit 0 was sent as +1.')
-    assert(max(abs(llrOut - oracle/2)) > 1e-9, ...
+    assert(okStage3(3), ...
         'Every LLR is half the right size. Common mistake: dropping the factor of 2.')
-    assert(max(abs(llrOut - oracle)) < 1e-9, ...
+    assert(okStage3(4), ...
         'The LLRs do not match the likelihood ratio. Look at the denominator.')
+    stage3Checks = table( ...
+        ["One LLR per received value"; "Sign is not flipped"; "Not half the size"; "Matches the likelihood ratio"], ...
+        okStage3, VariableNames = {'Check', 'Pass'});
+    stage3Checks
     disp('Stage 3 OK')
 end
-%% Stage 4 — predict, then read the hard decisions
-% First type your prediction: how many of the five decisions will be 1? Use 
-% the sign rule only. Then fill the blank with the comparison that is true where 
-% the LLR favours bit 1.
-% Pass: your prediction and the count print side by side, and Stage 4 OK.
+%% Stage 4 — read the hard decisions
+% Fill the blank with a whole right-hand side: bitOut is 1 where the LLR
+% favours bit 1, and 0 otherwise.
+% Pass: Stage 4 OK.
 
-% myPrediction = ___;
-% bitOut = llrOut ___ 0;
+% bitOut = ___;
 %% Stage 4 check (given)
-if ~exist('bitOut','var') || ~exist('myPrediction','var') || isnan(myPrediction)
-    disp('Stage 4 not done: type a numeric prediction into myPrediction, fill the blank, uncomment, and run.')
+if ~exist('myLockedPrediction','var') || ~exist('llrOut','var') || ~exist('oracle','var')
+    disp('Stage 4 needs Stages 3a and 3b first.')
+elseif ~exist('bitOut','var')
+    disp('Stage 4 not done: fill the blank with a whole right-hand side, uncomment, and run.')
 else
-    predCompare = table(myPrediction, sum(bitOut), ...
-        VariableNames = {'YouPredicted','Result'});
-    predCompare
     assert(isequal(double(bitOut), double(oracle < 0)), ...
         'Some decisions are inverted. Common mistake: flipping the sign convention; a negative LLR means bit 1.')
     disp('Stage 4 OK')
 end
 %% Stage 5 — confirm it does what it should (given)
 % Run the whole script from the top (Run All), then read this table and the 
-% figure, and write your interpretation in the text cell after them.
+% figure, and write your interpretation in the text cell after them. Rows marked
+% "repeat of Stage n" only repeat an earlier check; the other row uses a route
+% you have not yet compared this way.
 
-if ~exist('bitOut','var') || ~exist('oracle','var')
+if ~exist('bitOut','var') || ~exist('oracle','var') || ~exist('myLockedPrediction','var')
     disp('Stage 5 needs Stages 1 to 4 first: finish them, then Run All.')
 else
     % Each flag is computed from your result, so the table cannot say Pass by itself.
@@ -943,7 +993,8 @@ else
     buildResult(buildFlags) = "Pass";
 
     % Asserts above stop the run on failure; this table makes the passes visible.
-    buildChecks = table(["LLR value"; "Decision from sign"; "Confidence grows with |y|"], ...
+    buildChecks = table(["LLR value (repeat of Stage 3)"; "Decision from sign (repeat of Stage 4)"; ...
+        "Confidence grows with |y|"], ...
         ["log of the likelihood ratio"; "1 exactly where y is negative"; "sort(|LLR|) matches sort(|y|)"], ...
         buildResult, VariableNames = {'Check','Expected','Pass'});
     buildChecks
@@ -961,9 +1012,9 @@ else
     title({'Above zero: guess bit 0; below zero: guess bit 1', 'bar height = confidence'});
 end
 %% Build it — Interpretation
-% Your interpretation (write one or two sentences here): which received value
-% gives the least confident bit, and what would a decoder do with it that a
-% hard 0 or 1 cannot tell it?
+% Write yours first, before you run the check below (one or two sentences): which
+% received value gives the least confident bit, and what would a decoder do with
+% it that a hard 0 or 1 cannot tell it?
 %% Build it — Check your interpretation
 % Type a number into myAnswer, then run this section. The check uses your
 % LLRs and does not print a model sentence.
@@ -983,7 +1034,8 @@ end
 % If a later section says a variable is undefined, run the script from the top
 % (Run All). Figures remain open. Names the Review needs are not used here.
 clear buildFlags buildResult buildChecks predCompare oracle leastConf okInterp ...
-    interpCheck myAnswer orderLLR orderY
+    interpCheck myAnswer orderLLR orderY like0 like1 oracleFirst okPrediction3 ...
+    stage3aCheck okStage3 stage3Checks
 %% Follow-on exercises
 % These go one step past the beats: a new value, or a diagnosis. Copying a
 % block from above and changing one number will not answer them. The checks

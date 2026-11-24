@@ -653,43 +653,88 @@ else
         'The bits are in the wrong rows. firstBits should start at bit 1 and secondBits at bit 2.')
     disp('Stage 2 OK')
 end
-%% Stage 3 — predict, then build the QPSK mapping
-% First type your prediction: in which quadrant of the I-Q plane will symbol
-% 2 (made from bits 3 and 4 of myBits) land? Number the quadrants 1 to 4, going
-% anticlockwise from the top right (1: I and Q both positive). Use the sign rule
-% only. Then build a +1/−1 list from firstBits and a +1/−1 list from secondBits,
-% combine them into complex symbols, and scale to unit average power.
-% Pass: your prediction and the quadrant sit side by side in a table, and Stage 3 OK.
+%% Stage 3a — predict first: the quadrant of symbol 2
+% Before you build any symbols, type your prediction: in which quadrant of the
+% I-Q plane will symbol 2 (made from bits 3 and 4 of myBits) land? Number the
+% quadrants 1 to 4, going anticlockwise from the top right (1: I and Q both
+% positive). Use the sign rule only: bit 0 gives plus, bit 1 gives minus. Run
+% this section and the check under it before you start Stage 3b: the check does
+% not take a prediction once Stage 3b's names exist.
+% Pass: Stage 3a OK.
 
 % myPrediction = ___;
-% iSigns = ___;          % +1 or −1 from firstBits
-% qSigns = ___;          % +1 or −1 from secondBits
-% qpskOut = (___ + 1j*___) / ___;
-%% Stage 3 check (given; the check uses a lookup table, a different route from yours)
-if ~exist('qpskOut','var') || ~exist('myPrediction','var') || isnan(myPrediction)
-    disp('Stage 3 not done: type a numeric prediction into myPrediction, fill the blanks, uncomment, and run.')
+%% Stage 3a check (given; compares your prediction with the two bits, a different route, and does not print the value)
+if ~exist('myPrediction','var') || ~isnumeric(myPrediction) || ~isscalar(myPrediction) || isnan(myPrediction)
+    disp('Stage 3a not done: type one number into myPrediction, uncomment, and run.')
+elseif ~exist('firstBits','var') || ~exist('secondBits','var')
+    disp('Stage 3a needs Stage 2 first: make firstBits and secondBits, then return here.')
+elseif exist('iSigns','var') || exist('qSigns','var') || exist('qpskOut','var')
+    disp('Stage 3a refused: Stage 3b names already exist, so this is no longer a prediction. Run "clear iSigns qSigns qpskOut", then predict again.')
 else
-    % Quadrant of symbol 2, worked out from its angle (a different route).
+    % Different route: the two bits of symbol 2, not a symbol you will build later.
+    % Sign rule, then the angle of that I+jQ point, counted anticlockwise from
+    % the top right. This does not use qpskOut.
+    iFromBits = 1 - 2*firstBits(2);    % bit 0 -> +1, bit 1 -> -1
+    qFromBits = 1 - 2*secondBits(2);
+    oracleQuadrant = 1 + mod(floor(angle(iFromBits + 1j*qFromBits) / (pi/2)), 4);
+    okPrediction3 = (myPrediction == oracleQuadrant);
+    stage3aCheck = table("Prediction = quadrant of symbol 2, from its two bits", okPrediction3, ...
+        VariableNames = {'Check', 'Pass'});
+    stage3aCheck
+    if okPrediction3
+        myLockedPrediction = myPrediction;   % recorded before Stage 3b
+        disp('Stage 3a OK')
+    else
+        disp('Stage 3a not yet. Look first at bits 3 and 4 of myBits (the pair for symbol 2), then at the sign rule, then at the quadrant numbering. Change myPrediction and run again.')
+    end
+end
+%% Stage 3b — build the QPSK mapping
+% Fill each blank with a whole right-hand side: a +1/−1 list from firstBits, a
+% +1/−1 list from secondBits, and the row of unit-power complex symbols made
+% from those lists.
+% Pass: your locked prediction and the quadrant of the symbol you built appear
+% side by side, and Stage 3 OK.
+
+% iSigns = ___;
+% qSigns = ___;
+% qpskOut = ___;
+%% Stage 3b check (given; the check uses a lookup table, a different route from yours)
+if ~exist('myLockedPrediction','var')
+    disp('Stage 3b waits for Stage 3a: make your prediction there first and get Stage 3a OK.')
+elseif ~exist('iSigns','var') || ~exist('qSigns','var') || ~exist('qpskOut','var')
+    disp('Stage 3b not done: fill each blank with a whole right-hand side, uncomment, and run.')
+else
+    % Your locked prediction beside the quadrant of the symbol you built.
     quadrantOfSymbol2 = 1 + mod(floor(angle(qpskOut(2)) / (pi/2)), 4);
-    predCompare = table(myPrediction, quadrantOfSymbol2, ...
-        VariableNames = {'YouPredicted','Result'});
-    predCompare
+    stage3Prediction = table(myLockedPrediction, quadrantOfSymbol2, ...
+        VariableNames = {'MyPrediction', 'QuadrantBuilt'});
+    stage3Prediction
+
     lookup = [1+1j, 1-1j, -1+1j, -1-1j] / sqrt(2);   % labels 00, 01, 10, 11
     oracle = lookup(2*firstBits + secondBits + 1);
-    assert(abs(mean(abs(qpskOut).^2) - 1) < 1e-12, ...
-        'The average power is not 1. Common mistake: dropping the 1/sqrt(2) scale.')
     swapped = (imag(qpskOut) + 1j*real(qpskOut));
-    assert(~(max(abs(swapped - oracle)) < 1e-12 && max(abs(qpskOut - oracle)) > 1e-12), ...
+    okStage3 = [abs(mean(abs(qpskOut).^2) - 1) < 1e-12; ...
+                ~(max(abs(swapped - oracle)) < 1e-12 && max(abs(qpskOut - oracle)) > 1e-12); ...
+                max(abs(qpskOut - oracle)) < 1e-12];
+    assert(okStage3(1), ...
+        'The average power is not 1. Common mistake: dropping the 1/sqrt(2) scale.')
+    assert(okStage3(2), ...
         'Real and imaginary parts are swapped. The first bit of each pair sets the real part.')
-    assert(max(abs(qpskOut - oracle)) < 1e-12, ...
+    assert(okStage3(3), ...
         'Some symbols have the wrong sign. Check that bit 0 gives plus and bit 1 gives minus.')
+    stage3Checks = table( ...
+        ["Average power is 1"; "Real and imaginary not swapped"; "Signs match the 00/01/10/11 lookup"], ...
+        okStage3, VariableNames = {'Check', 'Pass'});
+    stage3Checks
     disp('Stage 3 OK')
 end
 %% Stage 4 — confirm it does what it should (given)
 % Run the whole script from the top (Run All), then read this table and the 
-% figure, and write your interpretation in the text cell after them.
+% figure, and write your interpretation in the text cell after them. Rows marked
+% "repeat of Stage 3" only repeat an earlier check; the other row uses a count
+% you have not yet compared this way.
 
-if ~exist('qpskOut','var') || ~exist('oracle','var')
+if ~exist('qpskOut','var') || ~exist('oracle','var') || ~exist('myLockedPrediction','var')
     disp('Stage 4 needs Stages 1 to 3 first: finish them, then Run All.')
 else
     % Each flag is computed from your result, so the table cannot say Pass by itself.
@@ -700,7 +745,8 @@ else
     buildResult(buildFlags) = "Pass";
 
     % Asserts above stop the run on failure; this table makes the passes visible.
-    buildChecks = table(["Symbol count"; "Average power"; "Signs match the rule"], ...
+    buildChecks = table(["Symbol count"; "Average power (repeat of Stage 3)"; ...
+        "Signs match the rule (repeat of Stage 3)"], ...
         ["half the number of bits"; "1"; "same as the 00/01/10/11 lookup"], ...
         [string(numel(qpskOut)); string(mean(abs(qpskOut).^2)); string(max(abs(qpskOut - oracle)))], ...
         buildResult, VariableNames = {'Check','Expected','Actual','Pass'});
@@ -719,8 +765,9 @@ else
     title('My QPSK mapper: first bit sets I, second bit sets Q');
 end
 %% Build it — Interpretation
-% Your interpretation (write one or two sentences here): why do all six symbols
-% land on only four points, and why are they all the same distance from the centre?
+% Write yours first, before you run the check below (one or two sentences): why
+% do all six symbols land on only four points, and why are they all the same
+% distance from the centre?
 %% Build it — Check your interpretation
 % Type a number into myAnswer, then run this section. The check uses your
 % symbols and does not print a model sentence.
@@ -740,7 +787,8 @@ end
 % If a later section says a variable is undefined, run the script from the top
 % (Run All). Figures remain open. Names the Review needs are not used here.
 clear buildFlags buildResult buildChecks predCompare oracle lookup ...
-    nDistinct okInterp interpCheck myAnswer quadrantOfSymbol2 swapped
+    nDistinct okInterp interpCheck myAnswer quadrantOfSymbol2 swapped ...
+    iFromBits qFromBits oracleQuadrant okPrediction3 stage3aCheck okStage3 stage3Checks
 %% Follow-on exercises
 % These go one step past the beats: a new value, or a diagnosis. Copying a
 % block from above and changing one number will not answer them. The checks
@@ -765,7 +813,7 @@ myAnswer = NaN;
 if isnan(myAnswer)
     disp('Type a number into myAnswer in this section, then run it again.')
 else
-    okE2 = abs(myAnswer - sqrt(2)) < 1e-12;
+    okE2 = abs(myAnswer - sqrt(2)) < 1e-3*sqrt(2);   % about 1e-3 relative: a typed decimal of the factor passes; 1, 2, and the reciprocal do not
     e2Check = table("E2 dropped scale", okE2, VariableNames = {'Check','Pass'});
     e2Check
 end
